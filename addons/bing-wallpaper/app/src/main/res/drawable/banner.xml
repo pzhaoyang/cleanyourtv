@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The TV launcher banner: 320x180 (16:9), the picture of the day behind a caption. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="320dp"
+    android:height="180dp"
+    android:viewportWidth="320"
+    android:viewportHeight="180">
+    <path
+        android:pathData="M0,0h320v180h-320z"
+        android:fillColor="#0B1B2B" />
+    <path
+        android:pathData="M0,112 L64,66 L120,104 L184,52 L248,96 L320,58 L320,180 L0,180 z"
+        android:fillColor="#12314A" />
+    <path
+        android:pathData="M0,138 L72,108 L140,134 L212,98 L268,132 L320,110 L320,180 L0,180 z"
+        android:fillColor="#1B4666" />
+    <path
+        android:pathData="M246,44m-18,0a18,18 0,1 1,36 0a18,18 0,1 1,-36 0"
+        android:fillColor="#FFD479" />
+</vector>

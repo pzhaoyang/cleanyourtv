@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Bing wallpaper</string>
+    <string name="dream_name">Bing wallpaper</string>
+    <string name="settings_title">Bing wallpaper</string>
+
+    <string name="empty_title">No pictures yet</string>
+    <string name="empty_body">The TV needs a network connection once. The screensaver downloads Bing\'s picture of the day by itself.</string>
+    <string name="offline">Offline: showing the pictures already on the TV</string>
+    <string name="loading">Fetching Bing pictures…</string>
+
+    <string name="option_seconds">Seconds per picture</string>
+    <string name="option_seconds_hint">5 to 3600 seconds; 60 by default</string>
+    <string name="option_caption">Show the picture\'s title and place</string>
+    <string name="option_refresh">Refresh now</string>
+    <string name="refreshing">Refreshing…</string>
+    <string name="refreshed">%1$d pictures on the TV</string>
+    <string name="refresh_failed">Could not reach Bing. The pictures already on the TV stay.</string>
+    <string name="picture_count">%1$d of 7 pictures on the TV</string>
+    <!-- %1$d is how many attempts in a row have failed; the wait grows from an hour up to a day. -->
+    <string name="feed_failing">%1$d failed attempts, retrying later</string>
+</resources>

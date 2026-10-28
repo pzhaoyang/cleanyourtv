@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Spec 1: literal values only, no @string references, ASCII label.
+     Label plus caption is 32 characters, so on a four column grid the tail of the caption is cut with an
+     ellipsis; the label and "A Week of Bing…" is what shows under the focused tile. -->
+<card spec="1" label="Bing Daily" caption="A Week of Bing Picture" accent="#0F7BC4" />
