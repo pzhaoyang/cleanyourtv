@@ -72,6 +72,37 @@ To see it without waiting, start the screensaver now:
 tools\venv\Scripts\python.exe -I tools\tv.py "am start -n com.android.systemui/.Somnambulator"
 ```
 
+### On firmware without the AOSP dreams service (Xiaomi/Redmi MiTV)
+
+Neither of the two steps above can work there: `service list` has no `dreams`, and the firmware's own power
+manager sends `com.duokan.intent.action.show.screensaver` instead of starting a `DreamService`. A
+`DreamService` such as `BingDream` therefore never runs, whatever `screensaver_components` says. Point the
+launcher at the card's screen instead, and it opens it on that broadcast:
+
+```xml
+<string name="screensaver_component" translatable="false">com.gathin.bingwall/.WallActivity</string>
+```
+
+It is started with the extra `screensaver=true`, which is what tells `WallActivity` to leave on any key
+(as the card it leaves on Back, and holding OK opens its settings).
+
+Xiaomi's own screensaver app, `com.mitv.screensaver` (installed as `/system/priv-app/AodTVSmartScreenSaver`),
+gets the same broadcast addressed at itself and answers it by starting `RenderActivity`, whatever its own
+settings say: an app cannot switch that off, since the permission it needs is
+`CHANGE_COMPONENT_ENABLED_STATE`. So the launcher replies with `com.duokan.intent.action.exit.screensaver`
+first, which is the action `MessageReceiver` itself uses to leave, and opens these pictures a moment later.
+Two things follow:
+
+- `screensaver_id` is that app's own re-entry guard, not a user switch: `RenderActivity.onCreate` writes it
+  to `0` and restores it on exit. Writing it from an app fails anyway (`IllegalArgumentException: You cannot
+  keep your settings in the secure settings`), so leave it alone.
+- What is on screen is decided by which activity opens last, so the launcher waits for the exit to land
+  before starting these pictures. Nothing has to be turned off in the TV's own menus.
+
+To hand the idle screen back to Xiaomi's clock, clear `screensaver_component` in `config.xml` (or use the
+`Screensaver` row in launcher settings, which does the same at runtime) and install the launcher again.
+Xiaomi's clock then takes the idle screen back with no further change.
+
 ## Permissions
 
 - **`INTERNET`**: the screensaver downloads the feed and the pictures from `www.bing.com` over HTTPS. Nothing

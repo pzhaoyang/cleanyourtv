@@ -3,6 +3,7 @@ package com.gathin.tvhome;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.net.Uri;
@@ -62,5 +63,25 @@ final class SystemSettings {
     static Intent appInfo(Context context, String pkg) {
         Intent info = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + pkg));
         return context.getPackageManager().resolveActivity(info, PackageManager.MATCH_DEFAULT_ONLY) != null ? info : null;
+    }
+
+    /**
+     * Whether the owner may uninstall pkg: an app they installed, never a system app (the TV's own
+     * firmware apps, which only a factory image or root can remove) and never Home itself.
+     */
+    static boolean uninstallable(Context context, String pkg) {
+        if (pkg == null || pkg.equals(context.getPackageName())) return false;
+        try {
+            ApplicationInfo info = context.getPackageManager().getApplicationInfo(pkg, 0);
+            return (info.flags & (ApplicationInfo.FLAG_SYSTEM | ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) == 0;
+        } catch (PackageManager.NameNotFoundException e) {
+            return false;
+        }
+    }
+
+    /** The system uninstall confirmation for pkg, or null where the firmware has no package installer. */
+    static Intent uninstall(Context context, String pkg) {
+        Intent delete = new Intent(Intent.ACTION_DELETE, Uri.parse("package:" + pkg));
+        return context.getPackageManager().resolveActivity(delete, PackageManager.MATCH_DEFAULT_ONLY) != null ? delete : null;
     }
 }

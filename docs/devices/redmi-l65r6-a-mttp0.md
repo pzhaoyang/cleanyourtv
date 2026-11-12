@@ -44,6 +44,23 @@ still resolved to PatchWall: the same package-name HOME allowlist as the MiTV-AE
 
 - The Inputs menu listed HDMI 1/2/3 and Composite. HDMI 1 opened Xiaomi's external-source activity, and Home
   came back to the replacement launcher.
+- The panel reports three HDMI ports but the set has two: `dumpsys tv_input` lists `HDMIInputService/HW5`,
+  `/HW6` and `/HW7`, and `dumpsys hdmi_control` shows the CEC device on physical address `0x1000`, port 1.
+  `HW7` has no socket, so `input_names` can rename `HW5`/`HW6` and leave `HW7` unnamed — an unnamed hardware
+  input keeps the framework's label, and the stock Sources menu numbers the ports one lower than the framework
+  does (`HW5` = "HDMI 2", `HW6` = "HDMI 1"), which is what the owner asked the menu to match.
+- Both tuners are registered by the one `com.mediatek.tvinput/.tuner.TunerInputService`, as `HW0` and `HW1`,
+  with the same label "Tuner": `HW0` is DTMB (what the Live TV row plays), `HW1` is the analog ATV source. They
+  are told apart only by the action that opens them — `com.xiaomi.mitv.tvplayer.ATV_PLAY` binds `HW1`,
+  `.DTMB_PLAY` binds `HW0` — or by naming one in `input_names` ("HW1=Analog TV"), which is what makes
+  `show_analog_tv` list it; nothing in the id or the label says which one is analog.
+- The analog tuner plays through the external-source activity: `EXTSRC_PLAY --ei input 1` binds `HW1`, while
+  `--ei input 0` binds nothing, so `input_sources` wants `HW1=1` for that row rather than `HW1=0`.
+- That row showed a black screen where the stock Sources menu showed the snow of an untuned channel. Binding
+  `HW1` is not enough: only `com.xiaomi.mitv.tvplayer.ATV_PLAY` starts `AtvActivity`, which drives the tuner
+  (and so draws the snow), while the external-source activity leaves the ATV path unset. `input_actions`
+  `HW1=com.xiaomi.mitv.tvplayer.ATV_PLAY` opens the row that way, and the entry stays in `input_sources` so the
+  input is still listed and still has a fallback.
 - `settings put system boot_ad_switch 0` read back as `0`, and the owner saw no startup ad after turning the TV
   off and on (an owner power cycle, not a verified full reboot). The same key works on other China Xiaomi builds
   ([`xiaomi-l43m7-ea-antl0.md`](xiaomi-l43m7-ea-antl0.md)); undo with `settings delete system boot_ad_switch`.

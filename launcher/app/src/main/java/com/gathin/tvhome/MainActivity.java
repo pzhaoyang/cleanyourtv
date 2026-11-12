@@ -116,12 +116,21 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
      * time arrives; the clock, date and greeting stay hidden before then.
      */
     private static final long TIME_VALID_AFTER_MS = 1_735_689_600_000L;
+    /** MiTV's idle signal: broadcast instead of starting a DreamService (see screensaverReceiver). */
+    private static final String SHOW_SCREENSAVER = "com.duokan.intent.action.show.screensaver";
+    /**
+     * Tells the screensaver activity it was opened as the screensaver and not as its own card: the bing-wallpaper
+     * add-on leaves on Back alone when it is the card, and on any key when it fills the idle screen.
+     */
+    private static final String EXTRA_SCREENSAVER = "screensaver";
     private String liveTvPkg;
     /** Launcher settings' change count this Home was built with (see onResume). */
     private long settingsRevision;
     /** Idle time on Home before ClockActivity; 0 is off (config.xml, home_idle_clock_minutes). */
     private long idleClockMs;
     private final Runnable showIdleClock = () -> startActivity(new Intent(this, ClockActivity.class));
+    /** What the firmware's idle broadcast opens; empty keeps the firmware's own screensaver (screensaver_component). */
+    private String screensaverComponent = "";
     private String liveTvAction;
     private String liveTvInputId;
     /** The app library is on (config.xml, app_library): only then can the tile menu take an app off Home. */
@@ -204,6 +213,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private boolean showStats;
     /** config.xml inputs_connected_only: the Inputs menu lists only connected inputs, the rest behind "More inputs". */
     private boolean inputsConnectedOnly;
+    /** config.xml show_analog_tv: the analog tuner the Live TV pick left out comes back as a plain Inputs row. */
+    private boolean showAnalogTv;
     private boolean shamsi;
     /** greeting_name: said after the greeting, which is shown in capitals. */
     private String greetingName = "";
@@ -401,6 +412,35 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             updateClockVisibility();
         }
     };
+    /**
+     * MiTV firmware has no AOSP dreams service: its power manager sends com.duokan.intent.action.show.screensaver
+     * when the TV has been idle and starts no DreamService, so a DreamService can never run — screensaver_components
+     * is written and read by nobody. Home is what stays in front while idle, so it takes the broadcast and opens
+     * screensaver_component instead. Empty, or a component that is gone, leaves the firmware's own screensaver.
+     *
+     * <p>The firmware sends the same broadcast to its own screensaver package ({@code com.mitv.screensaver}), which
+     * answers it by starting RenderActivity however that package's setting is: an app cannot switch it off, that needs
+     * CHANGE_COMPONENT_ENABLED_STATE. So Home answers first ({@link #EXIT_SCREENSAVER}) to make that activity give the
+     * idle screen up, and opens its own component a moment later; the firmware's own screensaver is never seen.
+     */
+    private static final String EXIT_SCREENSAVER = "com.duokan.intent.action.exit.screensaver";
+    private static final long SCREENSAVER_DELAY_MS = 700;
+    /** How many times to try again while Home is still coming back from the firmware's own screensaver. */
+    private static final int SCREENSAVER_RETRIES = 4;
+    private int screensaverRetries;
+    private final IntentFilter screensaverFilter = new IntentFilter(SHOW_SCREENSAVER);
+    private final BroadcastReceiver screensaverReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (!SystemScreensaver.launcherOwns(MainActivity.this)) return;
+            if (screensaverComponent.isEmpty()) return;
+            // The firmware's own screensaver is starting too; ask it to stand down before opening this one.
+            sendBroadcast(new Intent(EXIT_SCREENSAVER));
+            root.removeCallbacks(showScreensaverTask);
+            root.postDelayed(showScreensaverTask, SCREENSAVER_DELAY_MS);
+        }
+    };
+    private final Runnable showScreensaverTask = this::showScreensaver;
     private final Runnable minuteTick = new Runnable() {
         @Override
         public void run() {
@@ -445,6 +485,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         festive = festival.active(LocalDate.now());
         liveTvPkg = cfg.liveTvPackage;
         idleClockMs = cfg.homeIdleClockMinutes * MINUTE_MS;
+        screensaverComponent = cfg.screensaverComponent;
         bootToLiveTv = cfg.bootToLiveTv;
         openOnStartChoice = cfg.openOnStartChoice;
         openOnStartWaitMs = cfg.openOnStartNetworkWait * 1000L;
@@ -536,6 +577,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         rotationStart = SystemClock.elapsedRealtime();
         showStats = cfg.showStats;
         inputsConnectedOnly = cfg.inputsConnectedOnly;
+        showAnalogTv = cfg.showAnalogTv;
         shamsi = cfg.shamsiDate;
         lunarDate = findViewById(R.id.lunarDate);
         lunar = cfg.lunarDate;
@@ -992,6 +1034,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         } else {
             registerReceiver(timeReceiver, timeFilter);
         }
+        // Not NOT_EXPORTED: the broadcast comes from the firmware's power manager, not from this app.
+        if (!screensaverComponent.isEmpty()) registerReceiver(screensaverReceiver, screensaverFilter);
         updateClockVisibility();
         tileRefresh.onStart();
     }
@@ -1209,6 +1253,32 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         if (resumed && idleClockMs > 0) root.postDelayed(showIdleClock, idleClockMs);
     }
 
+    /**
+     * Opens the configured screensaver (screensaver_component), the firmware having sent its idle broadcast. Starting
+     * it is what makes it the screensaver: the same activity is also the add-on's card, so this is an ordinary start.
+     * Only while Home is in front: the firmware broadcasts on its own timer even when a film is playing, and a
+     * screensaver must not land on top of another app.
+     */
+    private void showScreensaver() {
+        if (screensaverComponent.isEmpty()) return;
+        if (!resumed) {
+            // Home is not in front yet: the firmware's own screensaver had the screen a moment ago and its exit has
+            // not been handled yet. Try again shortly rather than give up on this idle period.
+            if (screensaverRetries++ < SCREENSAVER_RETRIES) root.postDelayed(showScreensaverTask, SCREENSAVER_DELAY_MS);
+            return;
+        }
+        screensaverRetries = 0;
+        ComponentName component = ComponentName.unflattenFromString(screensaverComponent);
+        if (component == null) return;
+        try {
+            startActivity(new Intent().setComponent(component)
+                    .putExtra(EXTRA_SCREENSAVER, true)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        } catch (ActivityNotFoundException | SecurityException e) {
+            // Uninstalled or disallowed: the firmware's own screensaver is still there to show.
+        }
+    }
+
     @Override
     protected void onPause() {
         super.onPause();
@@ -1239,6 +1309,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         super.onStop();
         started = false;
         unregisterReceiver(timeReceiver);
+        if (!screensaverComponent.isEmpty()) unregisterReceiver(screensaverReceiver);
         handler.removeCallbacks(clockCheck);
         stopped = true;
         tileRefresh.onStop();
@@ -3101,6 +3172,57 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         return InputSources.mapped(inputSources, inputId);
     }
 
+    /** `input_names` in config.xml: "HW5=HDMI 2" renames the row for a port the framework numbers differently
+     *  from the set and from the TV app's own banner (MiTV-MTTP0 calls hdmi_port 1 "HDMI 2"). Returns null when
+     *  the input has no entry, leaving the name the framework gives it. */
+    private String mappedName(String inputId) {
+        if (inputId == null) return null;
+        String hw = inputId.substring(inputId.lastIndexOf('/') + 1);
+        for (String m : getResources().getStringArray(R.array.input_names)) {
+            int eq = m.indexOf('=');
+            if (eq <= 0 || !m.substring(0, eq).trim().equals(hw)) continue;
+            String v = m.substring(eq + 1).trim();
+            return v.isEmpty() ? null : v;
+        }
+        return null;
+    }
+
+    /** `input_actions` in config.xml: "HW1=com.xiaomi.mitv.tvplayer.ATV_PLAY" opens that one input with its
+     *  own action instead of `input_action` plus a source number. Xiaomi China firmware needs it for the analog
+     *  tuner: its tvplayer tunes ATV only through ATV_PLAY, whose activity drives the tuner (and so draws the
+     *  snow of an untuned channel), while the external-source activity binds the same hardware input but leaves
+     *  the ATV path unset and the set stays black. Returns null when the input has no entry. */
+    private String mappedAction(String inputId) {
+        if (inputId == null) return null;
+        String hw = inputId.substring(inputId.lastIndexOf('/') + 1);
+        for (String m : getResources().getStringArray(R.array.input_actions)) {
+            int eq = m.indexOf('=');
+            if (eq <= 0 || !m.substring(0, eq).trim().equals(hw)) continue;
+            String v = m.substring(eq + 1).trim();
+            return v.isEmpty() ? null : v;
+        }
+        return null;
+    }
+
+    /** The "/HW&lt;n&gt;" tails input_names gives a name to: the same keys mappedName looks up, and what
+     *  show_analog_tv reads as the owner asking for that tuner's row. */
+    private Set<String> namedInputs() {
+        Set<String> named = new HashSet<>();
+        for (String m : getResources().getStringArray(R.array.input_names)) {
+            int eq = m.indexOf('=');
+            if (eq > 0) named.add(m.substring(0, eq).trim());
+        }
+        return named;
+    }
+
+    /** The name an input's row shows: the `input_names` override when there is one, else the framework's. */
+    private CharSequence rowName(TvInputInfo info) {
+        String renamed = mappedName(info.getId());
+        if (renamed != null) return renamed;
+        CharSequence l = info.loadLabel(this);
+        return l == null ? info.getId() : l;
+    }
+
     /** Switches to a passthrough input (HDMI, AV). An input mapped in `input_sources` is opened by sending
      *  `input_action` with its source number as the int extra "input" (Xiaomi China firmware, whose tvplayer
      *  answers com.xiaomi.mitv.tvplayer.EXTSRC_PLAY and nothing else). Otherwise the standard way is
@@ -3123,6 +3245,15 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             }
         }
         Integer source = mappedSource(sourceId);
+        String action = mappedAction(sourceId);
+        if (action != null) {
+            try {
+                startActivity(new Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                return;
+            } catch (ActivityNotFoundException | SecurityException e) {
+                // fall through to the standard way
+            }
+        }
         if (source != null && source >= 0 && !inputAction.isEmpty()) {
             try {
                 startActivity(new Intent(inputAction).putExtra("input", source.intValue())
@@ -3187,13 +3318,15 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         String tunerId = null;
         boolean tunerIsHw = false;
         boolean tunerIsAnalog = false;
+        // show_analog_tv: the system tuner ids the Live TV pick could choose from.
+        List<String> tuners = new ArrayList<>();
         if (tim != null) {
             List<TvInputInfo> inputs = new ArrayList<>(tim.getTvInputList());
             // HDMI ports first in port order, then AV and the rest.
             Collections.sort(inputs, (a, b) -> {
                 boolean ha = a.getType() == TvInputInfo.TYPE_HDMI, hb = b.getType() == TvInputInfo.TYPE_HDMI;
                 if (ha != hb) return ha ? -1 : 1;
-                return String.valueOf(a.loadLabel(this)).compareToIgnoreCase(String.valueOf(b.loadLabel(this)));
+                return String.valueOf(rowName(a)).compareToIgnoreCase(String.valueOf(rowName(b)));
             });
             // An HDMI-CEC device (an Apple TV, a soundbar) gets an input of its own whose parent is the
             // port it sits on, so the port and the device would each get a row (Vestel MT7332: "HDMI 1"
@@ -3224,6 +3357,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 if (info.getType() == TvInputInfo.TYPE_TUNER
                         && (info.getServiceInfo().applicationInfo.flags & ApplicationInfo.FLAG_SYSTEM) != 0
                         && (liveTvInputId.isEmpty() || liveTvInputId.equals(info.getId()))) {
+                    // show_analog_tv collects the candidates the pick below chooses one from.
+                    tuners.add(info.getId());
                     // Prefer a hardware tuner: the framework names those ".../HW<n>". System apps such as
                     // AirPlay also register software inputs of type TUNER and may sort first (seen on TCL G05).
                     // Among tuners of the same kind, skip an analog input when another is present.
@@ -3248,8 +3383,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 if (Integer.valueOf(-1).equals(mappedSource(info.getId()))) continue;
                 // A CEC device's row is added with its port, below.
                 if (info.getParentId() != null && inputIds.contains(info.getParentId())) continue;
-                CharSequence l = info.loadLabel(this);
-                String label = l == null ? info.getId() : l.toString();
+                CharSequence l = rowName(info);
+                String label = l.toString();
                 boolean hdmi = info.getType() == TvInputInfo.TYPE_HDMI;
                 if (hdmi && !label.toUpperCase(Locale.ROOT).contains("HDMI")) label = "HDMI " + label;
                 CharSequence custom = InputNames.tidy(info.loadCustomLabel(this));
@@ -3284,6 +3419,32 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 View row = addInputRow(rows, popup, hdmi ? R.drawable.ic_input : R.drawable.ic_av, label, state,
                         () -> openInput(id));
                 if (connectedOnly && InputFold.folds(hdmi, state)) fold(row, folded);
+            }
+            // show_analog_tv: the tuner that lost the Live TV pick comes back as a plain row, so a set with a
+            // living ATV source (snow on the stock Sources menu) has the TV row its owner uses. AnalogTuners
+            // decides which ids qualify (on firmware that registers both tuners on one service, HW0 is DTMB and
+            // HW1 is ATV, and naming the loser in input_names is what marks it); the name is input_names',
+            // else the system's, and there is no connection state, since analog tuners have no hotplug to read,
+            // like the AV rows.
+            if (showAnalogTv) {
+                for (String id : AnalogTuners.losers(tuners, tunerId, namedInputs())) {
+                    TvInputInfo info = inputInfo(inputs, id);
+                    if (info == null) continue;
+                    String renamed = mappedName(id);
+                    String label;
+                    if (renamed != null) {
+                        label = renamed;
+                    } else {
+                        CharSequence l = info.loadLabel(this);
+                        label = l == null || l.length() == 0 ? "TV" : l.toString();
+                        CharSequence custom = InputNames.tidy(info.loadCustomLabel(this));
+                        if (custom != null && custom.length() > 0 && !custom.toString().equals(label)) {
+                            label = custom + " \u00B7 " + label;
+                        }
+                    }
+                    // A tuner, not the AV jacks: same channel icon the Live TV row uses.
+                    addInputRow(rows, popup, R.drawable.ic_livetv, label, -1, () -> openInput(id));
+                }
             }
         }
         if (!folded.isEmpty()) {
@@ -3338,7 +3499,12 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         if (liveTv != null) {
             if (rows.getChildCount() > 0) addSeparator(rows);
             final Intent liveTvIntent = liveTv;
-            addInputRow(rows, popup, R.drawable.ic_livetv, getString(R.string.live_tv), -1, () -> open(liveTvIntent));
+            // input_names can name the tuner's row too ("HW0=DTMB"): the stock Sources menu calls it that, and a
+            // row under the same name as the set's own is one its owner can find. Without an entry it stays
+            // "Live TV", which says what the row does on a set whose tuner has no name of its own.
+            String tunerName = tunerId == null ? null : mappedName(tunerId);
+            addInputRow(rows, popup, R.drawable.ic_livetv,
+                    tunerName != null ? tunerName : getString(R.string.live_tv), -1, () -> open(liveTvIntent));
         }
         if (rows.getChildCount() == 0) {
             Toast.makeText(this, R.string.no_inputs, Toast.LENGTH_SHORT).show();
@@ -3355,6 +3521,14 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             View child = rows.getChildAt(i);
             if (child.getVisibility() == View.VISIBLE && child.isFocusable()) { child.requestFocus(); break; }
         }
+    }
+
+    /** The input with this id, or null when the list has none (show_analog_tv looks its loser up here). */
+    private static TvInputInfo inputInfo(List<TvInputInfo> inputs, String id) {
+        for (TvInputInfo info : inputs) {
+            if (info.getId().equals(id)) return info;
+        }
+        return null;
     }
 
     private static void fold(View view, List<View> folded) {
@@ -3525,6 +3699,9 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         // Some firmware has no App info page at all; a row that only toasts "can't open" helps nobody.
         Intent info = SystemSettings.appInfo(this, pkg);
         if (info != null) addSettingsMenuRow(rows, popup, R.string.library_app_info, () -> open(info));
+        // Uninstall opens the system's own confirmation, so a wrong press still asks first.
+        Intent uninstall = SystemSettings.uninstallable(this, pkg) ? SystemSettings.uninstall(this, pkg) : null;
+        if (uninstall != null) addSettingsMenuRow(rows, popup, R.string.app_uninstall, () -> open(uninstall));
         panel.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
         popup.setWidth(Math.max((int) (200 * density), panel.getMeasuredWidth()));
         // Dock tiles sit near the bottom of the screen: open the menu above the tile when it would not fit below.

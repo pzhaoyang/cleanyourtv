@@ -33,6 +33,23 @@ public class HomeKeyServiceTest {
         assertFalse(HomeKeyService.firstBindAfterBoot(-1, -1, SOON));
     }
 
+    @Test public void theFirstBindOfABootProbes() {
+        assertTrue(HomeKeyService.probeDue(12, 11, -1, SOON));
+    }
+
+    @Test public void aBindRightAfterAProbeDoesNot() {
+        assertFalse(HomeKeyService.probeDue(12, 12, SOON, SOON + 5_000));
+    }
+
+    @Test public void aBindWellAfterAProbeDoes() {
+        // Xiaomi MiTV: force stopped ~40 s into the boot, then started again as Home.
+        assertTrue(HomeKeyService.probeDue(12, 12, SOON, SOON + HomeKeyService.REPROBE_AFTER_MS));
+    }
+
+    @Test public void noReprobeOutsideTheBootWindow() {
+        assertFalse(HomeKeyService.probeDue(12, 12, SOON, HomeKeyService.BOOT_WINDOW_MS));
+    }
+
     private static final String TV = "com.mediatek.wwtv.tvcenter";
 
     @Test public void liveTvBeforeAnyKeyGoesHome() {

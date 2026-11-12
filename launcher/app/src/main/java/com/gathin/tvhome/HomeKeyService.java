@@ -69,6 +69,10 @@ public class HomeKeyService extends AccessibilityService {
     private BroadcastReceiver unlockReceiver;
     /** The stock launcher's HOME activities (stock_home_redirect), disabled ones included. */
     private final Set<String> stockHome = new HashSet<>();
+    /** Private actions some firmware uses to open its launcher instead of a HOME intent. Xiaomi MiTV starts
+     *  com.mitv.tvhome/.NewMyAppActivity with android.intent.action.HOME_MY_APP at every power-on, and that
+     *  activity is not in the package's CATEGORY_HOME set, so the redirect used to miss it. */
+    private static final String[] STOCK_HOME_ACTIONS = {"android.intent.action.HOME_MY_APP"};
     /** stock_home_redirect, the stock launcher's package. */
     private String stockHomePackage = "";
     /** power_on_home: the Live TV package to send back to Home, empty when off; armed until this uptime or a key. */
@@ -97,6 +101,8 @@ public class HomeKeyService extends AccessibilityService {
     protected void onServiceConnected() {
         super.onServiceConnected();
         running = this;
+        BootLog.write(this, "helper: connected, accEnabled="
+                + Settings.Secure.getInt(getContentResolver(), Settings.Secure.ACCESSIBILITY_ENABLED, -1));
         settingsScancodes = getResources().getIntArray(R.array.settings_key_scancodes);
         // The service is directBootAware: Android 11 skips a service that is not while the user is still
         // locked at boot, writes accessibility_enabled=0 and, on TCL G03 firmware, never binds it after the
@@ -204,6 +210,14 @@ public class HomeKeyService extends AccessibilityService {
             Intent home = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME).setPackage(config.stockHomeRedirect);
             for (ResolveInfo ri : getPackageManager().queryIntentActivities(home, PackageManager.MATCH_DISABLED_COMPONENTS)) {
                 stockHome.add(ri.activityInfo.name);
+            }
+            // Firmware that opens its launcher with a private action rather than a HOME intent (Xiaomi MiTV's
+            // HOME_MY_APP). Those activities are not in CATEGORY_HOME, so collect them the same way.
+            for (String action : STOCK_HOME_ACTIONS) {
+                Intent privateHome = new Intent(action).setPackage(config.stockHomeRedirect);
+                for (ResolveInfo ri : getPackageManager().queryIntentActivities(privateHome, PackageManager.MATCH_DISABLED_COMPONENTS)) {
+                    stockHome.add(ri.activityInfo.name);
+                }
             }
         }
         // power_on_home, off by default. Not with boot_to_live_tv, or with Live TV picked as the Open on start app:
@@ -372,15 +386,25 @@ public class HomeKeyService extends AccessibilityService {
     /** How long after boot the first bind still counts as "at boot" for probeAtBoot. */
     static final long BOOT_WINDOW_MS = 3 * 60 * 1000L;
 
+    /** A bind this long after the last probe, in the same boot, follows a kill of this app: probe again. */
+    static final long REPROBE_AFTER_MS = 30 * 1000L;
+
     /** stock_home_redirect at boot: the stock home is often on screen before Android binds this service, so no
-     *  window event for it arrives (#1116). Once per boot, open ProbeActivity: when it closes, whatever was in
-     *  front comes back and sends a window event, and onAccessibilityEvent covers it only if it is the stock home.
-     *  An HDMI input or an app that the TV resumed at boot is left alone. */
+     *  window event for it arrives (#1116). Open ProbeActivity: when it closes, whatever was in front comes back
+     *  and sends a window event, and onAccessibilityEvent covers it only if it is the stock home. An HDMI input or
+     *  an app that the TV resumed at boot is left alone.
+     *
+     *  Not strictly once per boot: Xiaomi MiTV firmware force stops this app about a minute after boot and opens its
+     *  own home, which is after the first probe closed. Android then starts this app again as Home, so the service
+     *  binds a second time — with the stock home already on screen that event is gone, and the service would stay
+     *  bound but blind. A bind well after the last probe in the same boot is exactly that case, so it probes again;
+     *  the boot window still bounds the total. */
     private void probeAtBoot() {
         int boot = Settings.Global.getInt(getContentResolver(), Settings.Global.BOOT_COUNT, -1);
         SharedPreferences prefs = getSharedPreferences("boot", MODE_PRIVATE);
-        if (!firstBindAfterBoot(boot, prefs.getInt("probe_boot", -1), SystemClock.elapsedRealtime())) return;
-        prefs.edit().putInt("probe_boot", boot).apply();
+        long now = SystemClock.elapsedRealtime();
+        if (!probeDue(boot, prefs.getInt("probe_boot", -1), prefs.getLong("probe_at", -1), now)) return;
+        prefs.edit().putInt("probe_boot", boot).putLong("probe_at", now).apply();
         try {
             startActivity(new Intent(this, ProbeActivity.class)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_NO_ANIMATION));
@@ -390,6 +414,14 @@ public class HomeKeyService extends AccessibilityService {
 
     static boolean firstBindAfterBoot(int boot, int lastBoot, long uptimeMs) {
         return boot >= 0 && boot != lastBoot && uptimeMs < BOOT_WINDOW_MS;
+    }
+
+    /** Probing is due on the first bind of a boot, and again after this app was restarted within the same boot. */
+    static boolean probeDue(int boot, int lastBoot, long lastProbeMs, long uptimeMs) {
+        if (boot < 0 || uptimeMs >= BOOT_WINDOW_MS) return false;
+        if (boot != lastBoot) return true;
+        // Same boot: only a bind that follows a kill, well after the last probe, is worth another one.
+        return lastProbeMs < 0 || uptimeMs - lastProbeMs >= REPROBE_AFTER_MS;
     }
 
     /** Lets the system see the key, so a long press still does what the firmware gives it. */

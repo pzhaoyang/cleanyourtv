@@ -21,6 +21,12 @@
     <!-- YaOS (Yandex TV OS): HDMI, AV and the tuner all play in com.yandex.tv.live, whose activities require
          this permission (protection level normal, so it is granted at install). Ignored on other TVs. -->
     <uses-permission android:name="yandex.tv.permission.ACCESS_TV_SOURCE" />
+    <!-- Firmware that opens its own launcher at power-on (stock_home_redirect): BootReceiver starts Home again
+         once the boot is far enough along, and writes what it found to boot.log. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- The tile and app-library long-press menus' Uninstall row. Protection level normal, granted at install;
+         some firmware (MiTV-MTTP0's package installer) refuses ACTION_DELETE without it. -->
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
 
     <!-- Android 11+ package visibility: lets the launcher list the TV apps it shows as tiles, and the
          apps that declare a module card (docs/specs/card.md). -->
@@ -230,6 +236,19 @@
             android:permission="android.permission.WRITE_SECURE_SETTINGS">
             <intent-filter>
                 <action android:name="com.gathin.tvhome.GUARD" />
+            </intent-filter>
+        </receiver>
+
+        <!-- stock_home_redirect at a cold start: the firmware opens its own launcher with a private action, so
+             nothing brings this one up. directBootAware because the firmware's start comes before the unlock; the
+             boot broadcast is handled then, and the work that needs the unlock waits for BOOT_COMPLETED. -->
+        <receiver
+            android:name=".BootReceiver"
+            android:directBootAware="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
 

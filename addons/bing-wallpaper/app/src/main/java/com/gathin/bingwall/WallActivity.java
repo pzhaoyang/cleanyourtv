@@ -10,14 +10,22 @@ import android.view.WindowManager;
  * The module card's screen: the same slideshow, started with OK and left with Back. Holding OK (or pressing the
  * remote's Menu key) opens the settings instead, so the card can be used to judge and tune what the screensaver
  * will do.
+ *
+ * <p>Started with the {@link #EXTRA_SCREENSAVER} extra, it is the idle screen instead of the card (firmware without
+ * the AOSP dreams service has no DreamService to do it), and then any key leaves it, as a screensaver should.
  */
 public final class WallActivity extends Activity {
 
+    /** Set by the launcher that opens this as the screensaver rather than as the add-on's card. */
+    static final String EXTRA_SCREENSAVER = "screensaver";
+
     private Scene scene;
+    private boolean screensaver;
 
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        screensaver = getIntent().getBooleanExtra(EXTRA_SCREENSAVER, false);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         scene = new Scene(this);
         setContentView(scene.root);
@@ -45,6 +53,11 @@ public final class WallActivity extends Activity {
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if (screensaver) {
+            // Any key wakes the TV, and the TV was showing Home before this: leaving puts the viewer back there.
+            finish();
+            return true;
+        }
         if (isLongPressTarget(keyCode)) {
             // Without startTracking() Android never delivers onKeyLongPress, so holding OK did nothing and the
             // settings were reachable only from the TV's screensaver menu.

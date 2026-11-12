@@ -121,6 +121,12 @@
     <string name="wallpaper_none">ללא</string>
     <string name="wallpaper_applied">הטפט שונה</string>
     <string name="wallpaper_theme_default">ברירת המחדל של ערכת הנושא</string>
+    <string name="screensaver_label">שומר מסך</string>
+    <string name="screensaver_state">שומר מסך: %1$s</string>
+    <string name="screensaver_launcher">הלאנצ\'ר הזה</string>
+    <string name="screensaver_system">של הטלוויזיה</string>
+    <string name="screensaver_switched">שומר המסך הוחלף</string>
+    <string name="app_uninstall">הסרה</string>
 
     <!-- Race-weekend panel (RaceWeekend). -->
     <string name="race_kicker">סבב %1$d · %2$s · %3$s</string>

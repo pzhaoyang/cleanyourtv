@@ -33,6 +33,9 @@ public final class LauncherSettingsActivity extends Activity {
     private static final int[] DOCK_OPACITIES = {100, 70, 50, 30};
     private final TextView[] dockChoices = new TextView[DOCK_OPACITIES.length];
     private TextView wallpaperChoice;
+    private TextView screensaverChoice;
+    /** The launcher configuration this screen was opened with, for the screensaver row's visibility. */
+    private Config config;
     private TextView animationsChoice;
     private TextView advancedChoice;
     private TextView followThemeChoice;
@@ -49,6 +52,7 @@ public final class LauncherSettingsActivity extends Activity {
         setContentView(R.layout.activity_launcher_settings);
         choices = getSharedPreferences(Config.SETTINGS_NAME, MODE_PRIVATE);
         Config config = Config.load(this);
+        this.config = config;
         View reorderChoice = findViewById(R.id.reorderChoice);
         reorderChoice.setVisibility(config.launcherSettingsButton ? View.VISIBLE : View.GONE);
         reorderChoice.setOnClickListener(v -> {
@@ -108,6 +112,19 @@ public final class LauncherSettingsActivity extends Activity {
         }
         wallpaperChoice = findViewById(R.id.wallpaperChoice);
         wallpaperChoice.setOnClickListener(v -> showWallpaperPicker());
+        screensaverChoice = findViewById(R.id.screensaverChoice);
+        if (config.screensaverComponent.isEmpty()) {
+            // No screensaver_component: the firmware's own screensaver has nothing to be switched with.
+            screensaverChoice.setVisibility(View.GONE);
+        } else {
+            screensaverChoice.setOnClickListener(v -> {
+                boolean launcher = SystemScreensaver.launcherOwns(this);
+                if (SystemScreensaver.setOn(this, !launcher))
+                    Toast.makeText(this, R.string.screensaver_switched, Toast.LENGTH_SHORT).show();
+                else Toast.makeText(this, R.string.not_available, Toast.LENGTH_LONG).show();
+                refresh();
+            });
+        }
         animationsChoice = findViewById(R.id.animationsChoice);
         animationsChoice.setOnClickListener(v -> {
             animations = !animations;
@@ -298,6 +315,11 @@ public final class LauncherSettingsActivity extends Activity {
                         : wallpaperCurrent != null ? wallpaperCurrent
                         : getString(R.string.wallpaper_theme_default)));
         openOnStartChoice.setText(getString(R.string.open_on_start_state, openOnStartLabel()));
+        if (screensaverChoice.getVisibility() == View.VISIBLE) {
+            screensaverChoice.setText(getString(R.string.screensaver_state,
+                    getString(SystemScreensaver.launcherOwns(this)
+                            ? R.string.screensaver_launcher : R.string.screensaver_system)));
+        }
         followThemeChoice.setSelected(!hasOnTvChoices());
     }
 

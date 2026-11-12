@@ -57,6 +57,11 @@
     <string name="wallpaper_none">None</string>
     <string name="wallpaper_applied">Wallpaper changed</string>
     <string name="wallpaper_theme_default">Theme default</string>
+    <string name="screensaver_label">Screensaver</string>
+    <string name="screensaver_state">Screensaver: %1$s</string>
+    <string name="screensaver_launcher">this launcher</string>
+    <string name="screensaver_system">the TV\'s own</string>
+    <string name="screensaver_switched">Screensaver switched</string>
     <string name="animations_state">Animations: %1$s</string>
     <string name="advanced_effects">Advanced effects</string>
     <string name="advanced_effects_state">Advanced effects: %1$s</string>
@@ -114,6 +119,7 @@
     <string name="library_remove_shortcut">Remove from Home</string>
     <string name="library_open">Open</string>
     <string name="library_app_info">App info</string>
+    <string name="app_uninstall">Uninstall</string>
     <string name="library_save_failed">Could not save the shortcut</string>
     <string name="library_recent">New · Add to Home</string>
     <string name="library_hint_add">Press to add to Home · Hold for options</string>
